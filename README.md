@@ -1,4 +1,41 @@
-# HostPanel — AI Chat Web Hosting Control Panel
+<div align="center">
+
+# 🚀 HostPanel
+
+### AI Chat Web Hosting Control Panel
+
+**Provision real Linux web hosting by chatting in plain English.**
+Create users, host domains, install WordPress, issue SSL, and set up FTP —
+just by telling it what you want.
+
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Linux-blue)
+![Stack](https://img.shields.io/badge/stack-Flask%20%2B%20nginx%20%2B%20bash-orange)
+![No API key required](https://img.shields.io/badge/API%20key-optional-brightgreen)
+
+[Features](FEATURES.md) · [Quick start](#install-on-a-fresh-vps) · [DNS SSL](#automatic-dns-validation-no-port-80-needed)
+
+</div>
+
+---
+
+> **Talk, don't click.** HostPanel turns natural-language requests into real
+> provisioning actions on your VPS — and hands back the actual credentials.
+
+```
+you:  install wordpress on bobdesign.io for user bob
+panel: ✅ WordPress installed! Admin: https://bobdesign.io/wp-admin
+       user: admin   password: ••••••••   (DB: wp_bob_bobdesign)
+```
+
+**Highlights** — chat-driven provisioning · one-command WordPress · Let's Encrypt
+SSL with **automatic DNS-01 validation** (Cloudflare / Route53 / manual) · jailed
+FTP accounts · nginx reverse-proxy hardening · cross-distro installer (apt/dnf/
+yum/apk). Full list in **[FEATURES.md](FEATURES.md)**.
+
+---
+
+## What it does
 
 A self-hosted control panel you drive by chat. Tell it in plain language to
 create hosting users, point domains at them, and install WordPress — it asks
