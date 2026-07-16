@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostPanel — AI Hosting Control Panel</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3340;
+    --ink:#e6edf3; --muted:#8b97a7; --accent:#3fb950; --accent2:#388bfd;
+    --danger:#f85149; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+  }
+  header{
+    display:flex;align-items:center;gap:12px;padding:14px 20px;
+    border-bottom:1px solid var(--border);background:var(--panel);
+  }
+  header .logo{font-weight:700;font-size:18px;color:var(--accent)}
+  header .sub{color:var(--muted);font-size:12px}
+  header .spacer{flex:1}
+  header button{
+    background:var(--panel2);color:var(--ink);border:1px solid var(--border);
+    border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;
+  }
+  header button:hover{border-color:var(--accent2)}
+  .wrap{flex:1;display:flex;min-height:0}
+  .sidebar{
+    width:300px;background:var(--panel);border-right:1px solid var(--border);
+    padding:16px;overflow:auto;display:none;
+  }
+  .sidebar.open{display:block}
+  .sidebar h3{margin:0 0 10px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .field select,.field input{
+    width:100%;background:var(--bg);border:1px solid var(--border);color:var(--ink);
+    border-radius:8px;padding:9px;font:inherit;font-size:13px;
+  }
+  .field input:focus,.field select:focus{outline:none;border-color:var(--accent2)}
+  .savebtn{
+    width:100%;background:var(--accent);color:#04130a;border:none;border-radius:8px;
+    padding:10px;font:inherit;font-weight:700;cursor:pointer;font-size:13px;
+  }
+  .savebtn:hover{filter:brightness(1.1)}
+  .hint{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .chat{flex:1;display:flex;flex-direction:column;min-width:0}
+  .messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:78%;padding:12px 14px;border-radius:var(--radius);white-space:pre-wrap;line-height:1.55;font-size:13.5px}
+  .msg.user{align-self:flex-end;background:var(--accent2);color:#fff;border-bottom-right-radius:2px}
+  .msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--border);border-bottom-left-radius:2px}
+  .msg code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-size:12.5px;word-break:break-all}
+  .typing{color:var(--muted);font-style:italic;align-self:flex-start}
+  .composer{
+    display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--border);background:var(--panel);
+  }
+  .composer input{
+    flex:1;background:var(--bg);border:1px solid var(--border);color:var(--ink);
+    border-radius:10px;padding:12px 14px;font:inherit;font-size:14px;
+  }
+  .composer input:focus{outline:none;border-color:var(--accent2)}
+  .composer button{
+    background:var(--accent);color:#04130a;border:none;border-radius:10px;
+    padding:0 20px;font:inherit;font-weight:700;cursor:pointer;
+  }
+  .composer button:hover{filter:brightness(1.1)}
+  .examples{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 14px}
+  .examples button{
+    background:var(--panel2);border:1px solid var(--border);color:var(--muted);
+    border-radius:20px;padding:6px 12px;font:inherit;font-size:11.5px;cursor:pointer;
+  }
+  .examples button:hover{color:var(--ink);border-color:var(--accent2)}
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--border);padding:10px 18px;
+    border-radius:8px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;
+  }
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">⬢ HostPanel</span>
+  <span class="sub">AI Web Hosting Control Panel</span>
+  <span class="spacer"></span>
+  <button id="toggleSettings">⚙ API Keys</button>
+</header>
+
+<div class="wrap">
+  <aside class="sidebar" id="sidebar">
+    <h3>LLM Provider (optional)</h3>
+    <div class="field">
+      <label>Provider</label>
+      <select id="provider">
+        <option value="">— built-in parser (no key needed) —</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input id="apikey" type="password" placeholder="paste your NVIDIA NIM / OpenAI key">
+    </div>
+    <div class="field">
+      <label>Model</label>
+      <input id="model" type="text" placeholder="leave blank for default">
+    </div>
+    <button class="savebtn" id="saveKey">Save API Key</button>
+    <p class="hint">Without a key, HostPanel uses a built-in parser that understands
+      "create user X", "host domain X for user Y", "install wordpress on X for user Y".
+      Add a key (e.g. NVIDIA NIM) for natural-language flexibility.</p>
+    <h3 style="margin-top:22px">DNS Provider (for SSL)</h3>
+    <div class="field">
+      <label>DNS provider</label>
+      <select id="dnsprovider">
+        <option value="">— none (HTTP challenge on port 80) —</option>
+        <option value="cloudflare">Cloudflare</option>
+        <option value="route53">AWS Route53</option>
+        <option value="manual">Manual (I'll add the TXT record)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Credentials / API token</label>
+      <input id="dnscreds" type="password" placeholder="Cloudflare API token (Zone:DNS edit)">
+    </div>
+    <button class="savebtn" id="saveDns">Save DNS Config</button>
+    <p class="hint">Set this to issue certs via DNS-01 — no port 80 needed, works behind
+      firewalls and for wildcards. Route53 uses AWS env/instance role (no token needed).</p>
+  </aside>
+
+  <main class="chat">
+    <div class="messages" id="messages">
+      <div class="msg bot">👋 Hi! I'm your hosting assistant. Tell me what to set up.
+
+Try:
+• create user acme
+• host domain acme.com for user acme
+• install wordpress on acme.com for user acme
+• show users</div>
+    </div>
+    <div class="examples">
+      <button data-cmd="create user acme">+ create user acme</button>
+      <button data-cmd="host domain acme.com for user acme">+ host domain acme.com for user acme</button>
+      <button data-cmd="install wordpress on acme.com for user acme">+ install wordpress on acme.com for user acme</button>
+      <button data-cmd="secure domain acme.com with lets encrypt">+ enable ssl acme.com</button>
+      <button data-cmd="secure domain acme.com with lets encrypt using dns">+ enable ssl via DNS</button>
+      <button data-cmd="create ftp for user acme domain acme.com">+ create ftp acme.com</button>
+      <button data-cmd="harden the panel with basic auth">+ secure panel (proxy+auth)</button>
+      <button data-cmd="show users">+ show users</button>
+    </div>
+    <div class="composer">
+      <input id="input" placeholder="Type a hosting command or question…" autocomplete="off">
+      <button id="send">Send</button>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let session = localStorage.getItem('hp_session') || '';
+
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// render: allow `code` spans + newlines
+function render(text){
+  return escapeHtml(text).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>');
+}
+function addMsg(who, text){
+  const d=document.createElement('div');
+  d.className='msg '+who;
+  d.innerHTML = who==='bot' ? render(text) : escapeHtml(text);
+  $('#messages').appendChild(d);
+  $('#messages').scrollTop=$('#messages').scrollHeight;
+}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+async function send(){
+  const input=$('#input'); const text=input.value.trim();
+  if(!text) return;
+  addMsg('user',text); input.value='';
+  const t=document.createElement('div'); t.className='typing'; t.textContent='thinking…';
+  $('#messages').appendChild(t);
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:text,session})});
+    const data=await r.json();
+    session=data.session; localStorage.setItem('hp_session',session);
+    t.remove(); addMsg('bot',data.reply);
+  }catch(e){ t.remove(); addMsg('bot','❌ Error talking to panel: '+e.message); }
+}
+
+// load providers
+fetch('/api/apikeys').then(r=>r.json()).then(d=>{
+  const sel=$('#provider');
+  (d.providers||[]).forEach(p=>{
+    const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o);
+  });
+  if(d.provider){ sel.value=d.provider; $('#model').value=d.model||''; }
+});
+
+$('#saveKey').onclick=async()=>{
+  const provider=$('#provider').value;
+  const key=$('#apikey').value;
+  if(!provider){ toast('Pick a provider to save a key'); return; }
+  const r=await fetch('/api/apikeys',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({provider,key,model:$('#model').value})});
+  const d=await r.json();
+  toast(d.ok?'API key saved ✓':'Save failed');
+};
+
+// DNS provider config
+fetch('/api/dnsconfig').then(r=>r.json()).then(d=>{
+  if(d.provider){ $('#dnsprovider').value=d.provider; }
+});
+$('#saveDns').onclick=async()=>{
+  const provider=$('#dnsprovider').value;
+  if(!provider){ toast('Pick a DNS provider'); return; }
+  const r=await fetch('/api/dnsconfig',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({provider,credentials:$('#dnscreds').value})});
+  const d=await r.json();
+  toast(d.ok?`DNS (${provider}) saved ✓`:'Save failed');
+};
+
+$('#toggleSettings').onclick=()=>$('#sidebar').classList.toggle('open');
+$('#send').onclick=send;
+$('#input').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+document.querySelectorAll('.examples button').forEach(b=>b.onclick=()=>{
+  $('#input').value=b.dataset.cmd; send();
+});
+</script>
+</body>
+</html>

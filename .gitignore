@@ -1,0 +1,30 @@
+# Runtime state (created at install/run time on the server — never commit)
+config/
+users/
+data/
+logs/
+run/
+venv/
+
+# Secrets that may appear during local testing
+*.ini
+apikeys.json
+dnsconfig.json
+cloudflare.ini
+sessions.json
+.htpasswd
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS cruft
+*.swp
+*.swo
+.DS_Store
+*~
+
+# Build artifacts
+*.tar.gz
+dist/
