@@ -19,8 +19,6 @@ DOCROOT="$(docroot_for "$USERNAME")"
 mkdir -p "$DOCROOT"
 chown -R "${USERNAME}:${USERNAME}" "$DOCROOT"
 
-NGINX_AVAILABLE="/etc/nginx/sites-available"
-NGINX_ENABLED="/etc/nginx/sites-enabled"
 mkdir -p "$NGINX_AVAILABLE" "$NGINX_ENABLED"
 
 CONF="${NGINX_AVAILABLE}/${DOMAIN}.conf"

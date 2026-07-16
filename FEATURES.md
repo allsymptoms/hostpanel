@@ -16,7 +16,10 @@ No dashboards to click through — you talk, HostPanel builds.
 | 🛡️ | Automatic DNS validation | `secure domain acme.com with lets encrypt using dns` |
 | 📁 | Jailed FTP accounts | `create ftp for user acme domain acme.com` |
 | 🚪 | Panel hardening | `harden the panel with basic auth` |
-| 📋 | Inventory | `show users` |
+| 🗄️ | Backups & restore | `backup acme.com` / `restore acme.com from <ref>` |
+| 🛡️ | Firewall + fail2ban | `configure firewall` / `enable fail2ban` |
+| 🗑️ | Teardown (safe) | `delete vhost acme.com` (asks to confirm, backs up first) |
+| 📋 | Audit / activity | `show activity` |
 
 ---
 
@@ -96,6 +99,36 @@ to `/opt/hostpanel` and runs it as a **systemd service**.
 A clean single-page chat interface with one-click example buttons and a settings
 sidebar for LLM keys and DNS provider configuration.
 
+## 10. Backups & restore
+
+- `backup acme.com` archives the docroot and (for WordPress) dumps the database into
+  a timestamped archive under `/opt/hostpanel/backups/`.
+- `list backups` shows every available restore point; `restore acme.com from <ref>`
+  brings files **and** DB back. `restore … --db-only` / `--files-only` for partial
+  restores.
+- Teardown actions (below) **always back up first** by default.
+
+## 11. Teardown with safety rails
+
+Removing things is as easy as creating them — but never silent:
+
+- `delete vhost acme.com`, `uninstall wordpress acme.com`, `delete user acme`.
+- Every destructive request asks **"Reply yes to proceed"** and waits for explicit
+  confirmation before touching anything.
+- Each one backs up the data first, so a mistaken delete is recoverable.
+
+## 12. Host firewall & brute-force defense
+
+- `configure firewall` opens only 22/80/443/21 and the FTP passive range
+  (40000–40100) via `ufw` or `firewalld`, denying everything else.
+- `enable fail2ban` deploys jails for **sshd**, the panel's **nginx-http-auth**,
+  and **vsftpd** — brute-force attempts get banned automatically.
+
+## 13. Audit log / activity feed
+
+- `show activity` surfaces an append-only log of every action (who/what/when/result).
+- The same log lives at `/opt/hostpanel/logs/audit.log` for off-box shipping.
+
 ---
 
 ## Architecture
@@ -138,7 +171,10 @@ host domain bobdesign.io for user bob
 install wordpress on bobdesign.io for user bob
 secure domain bobdesign.io with lets encrypt
 create ftp for user bob domain bobdesign.io
-# → Bob has a live HTTPS WordPress site with FTP access.
+backup bobdesign.io
+configure firewall
+enable fail2ban
+# → Bob has a live HTTPS WordPress site with FTP, a backup, and a hardened host.
 ```
 
 See [README.md](README.md) for full setup, DNS provider configuration, and

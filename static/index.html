@@ -149,6 +149,12 @@ Try:
       <button data-cmd="create ftp for user acme domain acme.com">+ create ftp acme.com</button>
       <button data-cmd="harden the panel with basic auth">+ secure panel (proxy+auth)</button>
       <button data-cmd="show users">+ show users</button>
+      <button data-cmd="show activity">+ show activity</button>
+      <button data-cmd="backup acme.com">+ backup acme.com</button>
+      <button data-cmd="list backups">+ list backups</button>
+      <button data-cmd="configure firewall">+ configure firewall</button>
+      <button data-cmd="enable fail2ban">+ enable fail2ban</button>
+      <button data-cmd="delete vhost acme.com">+ delete site acme.com (asks confirm)</button>
     </div>
     <div class="composer">
       <input id="input" placeholder="Type a hosting command or question…" autocomplete="off">
@@ -176,6 +182,8 @@ function addMsg(who, text){
 }
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
+let pendingConfirm = '';  // token for an in-flight destructive confirmation
+
 async function send(){
   const input=$('#input'); const text=input.value.trim();
   if(!text) return;
@@ -184,9 +192,10 @@ async function send(){
   $('#messages').appendChild(t);
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:text,session})});
+      body:JSON.stringify({message:text,session,confirm_token:pendingConfirm})});
     const data=await r.json();
     session=data.session; localStorage.setItem('hp_session',session);
+    pendingConfirm=data.confirm_token || '';   // hold token for the next yes/no
     t.remove(); addMsg('bot',data.reply);
   }catch(e){ t.remove(); addMsg('bot','❌ Error talking to panel: '+e.message); }
 }

@@ -7,7 +7,8 @@ A single-file Flask backend that:
   * parses natural-language hosting requests and runs provisioning scripts
   * returns real credentials to the user
 """
-import os, json, subprocess, shlex, re, secrets, uuid, time
+import os, json, subprocess, shlex, re, secrets, uuid, time, hashlib
+md5 = hashlib.md5
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, Response
 
@@ -100,8 +101,18 @@ You can do these actions (output ONE command line as JSON in a ```json code bloc
   - install_wordpress: {"action":"install_wordpress","username":"<unixname>","domain":"<domain>","title":"<site title>","admin_user":"<wp admin>","admin_email":"<email>"}
   - setup_ssl: {"action":"setup_ssl","domain":"<domain>","dns":"<cloudflare|route53|manual|empty for http>"}
   - status: {"action":"status"}
+  - show_activity: {"action":"show_activity"}
+  - backup: {"action":"backup","domain":"<domain>"}
+  - list_backups: {"action":"list_backups","domain":"<domain or empty for all>"}
+  - restore: {"action":"restore","domain":"<domain>","backup_ref":"<ref>","db_only":false,"files_only":false}
+  - setup_firewall: {"action":"setup_firewall"}
+  - setup_fail2ban: {"action":"setup_fail2ban"}
+  - delete_vhost: {"action":"delete_vhost","domain":"<domain>","no_backup":false}
+  - uninstall_wordpress: {"action":"uninstall_wordpress","domain":"<domain>","no_backup":false}
+  - delete_user: {"action":"delete_user","username":"<unixname>","no_backup":false}
 If required info is missing, reply with plain text asking the user for it (no JSON).
-Keep replies short and friendly. Always confirm with the real credentials the scripts return."""
+Keep replies short and friendly. Always confirm with the real credentials the scripts return.
+For destructive actions (delete/uninstall) you may set "no_backup":false to keep the default backup-first behavior."""
 
 # ---------------------------------------------------------------------------
 # Script running
@@ -203,6 +214,36 @@ def handle_message(text, history):
         return execute_intent({"action": "setup_proxy"}, note)
     if "status" in t or "list" in t or "show users" in t:
         return execute_intent({"action": "status"}, note)
+    # Activity feed
+    if re.search(r"(activity|audit|recent|history|what (did|have) you (do|done))", t):
+        return execute_intent({"action": "show_activity"}, note)
+    # Backups
+    if re.search(r"backup", t) and m_domain:
+        return execute_intent({"action": "backup", "domain": m_domain.group(1)}, note)
+    if re.search(r"(list backups|show backups|available backups)", t):
+        d = m_domain.group(1) if m_domain else ""
+        return execute_intent({"action": "list_backups", "domain": d}, note)
+    if re.search(r"restore", t) and m_domain:
+        ref = ""
+        m_ref = re.search(r"(backup|from)\s+([a-z0-9._-]+_[0-9]{8}-[0-9]{6})", t)
+        if m_ref:
+            ref = m_ref.group(2)
+        return execute_intent({"action": "restore", "domain": m_domain.group(1), "backup_ref": ref}, note)
+    # Firewall / fail2ban
+    if re.search(r"(firewall|ufw|firewalld|open ports)", t):
+        return execute_intent({"action": "setup_firewall"}, note)
+    if re.search(r"fail2ban|brute ?force|ban attackers|intrusion", t):
+        return execute_intent({"action": "setup_fail2ban"}, note)
+    # Teardown (destructive) — require explicit confirmation
+    if re.search(r"(delete|remove|uninstall|tear ?down|destroy)", t):
+        if re.search(r"wordpress", t) and m_domain:
+            return require_confirm({"action": "uninstall_wordpress", "domain": m_domain.group(1)})
+        if re.search(r"domain|site|vhost", t) and m_domain:
+            return require_confirm({"action": "delete_vhost", "domain": m_domain.group(1)})
+        if m_user:
+            return require_confirm({"action": "delete_user", "username": m_user.group(1)})
+        if m_domain:
+            return require_confirm({"action": "delete_vhost", "domain": m_domain.group(1)})
 
     return None  # means: ask the user for clarification
 
@@ -218,8 +259,35 @@ def extract_json(text):
     except Exception:
         return None
 
-def execute_intent(intent, note=""):
+# Pending destructive actions awaiting confirmation (session_id -> intent)
+PENDING_CONFIRM = {}
+
+def require_confirm(intent):
+    """Ask the user to confirm a destructive action before executing."""
+    labels = {
+        "delete_user": f"⚠️ This will DELETE hosting user `{intent.get('username')}` and ALL their sites (after a backup).",
+        "delete_vhost": f"⚠️ This will REMOVE the site `{intent.get('domain')}` (after a backup).",
+        "uninstall_wordpress": f"⚠️ This will REMOVE WordPress from `{intent.get('domain')}` (after a backup).",
+    }
+    msg = labels.get(intent["action"], "⚠️ Confirm this destructive action?")
+    PENDING_CONFIRM[_confirm_token(intent)] = intent
+    return {
+        "reply": (msg + "\n\nReply **yes** to proceed, or anything else to cancel."),
+        "confirm_token": _confirm_token(intent),
+    }
+
+def _confirm_token(intent):
+    return md5(json.dumps(intent, sort_keys=True).encode()).hexdigest()[:12]
+
+def execute_intent(intent, note="", confirm_token=None):
+    # Honor an explicit confirm/cancel if a token was passed
     action = intent.get("action")
+    if confirm_token:
+        pending = PENDING_CONFIRM.pop(confirm_token, None)
+        if pending is None:
+            return {"reply": "That confirmation has expired or is unknown. Please repeat the request."}
+        intent = pending
+        action = intent.get("action")
     if action == "create_user":
         r = run_script("create_user.sh", [intent["username"]])
     elif action == "create_vhost":
@@ -259,6 +327,38 @@ def execute_intent(intent, note=""):
         if intent.get("public_domain"):
             args.append(intent["public_domain"])
         r = run_script("setup_proxy.sh", args)
+    elif action == "show_activity":
+        r = run_script("show_activity.sh", [])
+    elif action == "backup":
+        r = run_script("backup.sh", [intent["domain"]])
+    elif action == "list_backups":
+        r = run_script("list_backups.sh", [intent.get("domain", "")]) if intent.get("domain") else run_script("list_backups.sh", [])
+    elif action == "restore":
+        args = [intent["domain"], intent.get("backup_ref", "")]
+        if intent.get("db_only"):
+            args.append("--db-only")
+        elif intent.get("files_only"):
+            args.append("--files-only")
+        r = run_script("restore.sh", args)
+    elif action == "setup_firewall":
+        r = run_script("setup_firewall.sh", [])
+    elif action == "setup_fail2ban":
+        r = run_script("setup_fail2ban.sh", [])
+    elif action == "delete_vhost":
+        args = [intent["domain"]]
+        if intent.get("no_backup"):
+            args.append("--no-backup")
+        r = run_script("delete_vhost.sh", args)
+    elif action == "uninstall_wordpress":
+        args = [intent["domain"]]
+        if intent.get("no_backup"):
+            args.append("--no-backup")
+        r = run_script("uninstall_wordpress.sh", args)
+    elif action == "delete_user":
+        args = [intent["username"]]
+        if intent.get("no_backup"):
+            args.append("--no-backup")
+        r = run_script("delete_user.sh", args)
     else:
         return {"reply": note + f"Unknown action: {action}"}
     return format_result(action, r, note)
@@ -315,6 +415,42 @@ def format_result(action, r, note):
             f"Admin password: `{r['password']}`\n\n"
             f"{r.get('note','')}"
         )}
+    if action == "show_activity":
+        entries = r.get("entries", []) if isinstance(r, dict) else []
+        if not entries:
+            return {"reply": note + "No activity recorded yet."}
+        lines = [f"`{e['time']}`  {e['action']}  {e['result']}  {e.get('args','')}" for e in entries]
+        return {"reply": note + "Recent activity:\n" + "\n".join(lines)}
+    if action == "backup":
+        return {"reply": note + (
+            f"✅ Backup created for `{r['domain']}`.\n\n"
+            f"Reference: `{r['backup_ref']}`\n"
+            f"Archive: `{r['archive']}`\n"
+            f"Database dump: `{r['db_dump']}`\n"
+            f"Size: {r['size']}"
+        )}
+    if action == "list_backups":
+        backups = r.get("backups", []) if isinstance(r, dict) else []
+        if not backups:
+            return {"reply": note + "No backups found."}
+        lines = [f"`{b['ref']}`  ({b['domain']})  size={b['size']}  {b['when']}" for b in backups]
+        return {"reply": note + "Available backups:\n" + "\n".join(lines)}
+    if action == "restore":
+        return {"reply": note + (
+            f"✅ Restored `{r['domain']}` from backup `{r['backup_ref']}`.\n"
+            f"Files restored: {'yes' if r.get('restored_files') else 'no'}\n"
+            f"Database restored: {'yes' if r.get('restored_db') else 'no'}"
+        )}
+    if action == "setup_firewall":
+        return {"reply": note + f"✅ Firewall configured via `{r['firewall']}`.\nOpen ports: 22, 80, 443, 21, 40000–40100 (FTP passive), 8080."}
+    if action == "setup_fail2ban":
+        return {"reply": note + f"✅ fail2ban enabled.\nJails: {r['jails']}"}
+    if action == "delete_vhost":
+        return {"reply": note + f"🗑️ Removed site `{r['domain']}` (backup: `{r['backup']}`)."}
+    if action == "uninstall_wordpress":
+        return {"reply": note + f"🗑️ Removed WordPress from `{r['domain']}` (backup: `{r['backup']}`)."}
+    if action == "delete_user":
+        return {"reply": note + f"🗑️ Deleted hosting user `{r['username']}` and {r['sites_removed']} site(s)."}
     return {"reply": note + json.dumps(r, indent=2)}
 
 # ---------------------------------------------------------------------------
@@ -334,20 +470,38 @@ def chat():
         sessions = json.loads(SESSIONS_FILE.read_text())
     history = sessions.get(sid, [])
     history.append({"role": "user", "text": text})
-    result = handle_message(text, history)
+
+    # If there's a pending confirmation for this session, treat the reply as yes/no
+    pending_token = data.get("confirm_token") or sessions.get(sid, [{}])[-1:][0].get("_pending")
+    if pending_token and pending_token in PENDING_CONFIRM:
+        if re.search(r"^(yes|y|confirm|proceed|do it|go ahead)\b", text, re.I):
+            result = execute_intent({}, confirm_token=pending_token)
+        else:
+            PENDING_CONFIRM.pop(pending_token, None)
+            result = {"reply": "Cancelled. No changes were made."}
+    else:
+        result = handle_message(text, history)
+
     if result is None:
         reply = ("I can help you with hosting. Try things like:\n"
                  "• `create user acme`\n"
                  "• `host domain acme.com for user acme`\n"
                  "• `install wordpress on acme.com for user acme`\n"
-                 "• `show users`\n\n"
+                 "• `show users` / `show activity`\n"
+                 "• `backup acme.com` / `list backups`\n"
+                 "• `configure firewall` / `enable fail2ban`\n\n"
                  "What would you like to do? (I'll ask for any missing details.)")
     else:
         reply = result["reply"]
-    history.append({"role": "assistant", "text": reply})
+
+    # Stash the confirm token so the next message (yes/no) resolves it
+    reply_obj = {"role": "assistant", "text": reply}
+    if "confirm_token" in result:
+        reply_obj["_pending"] = result["confirm_token"]
+    history.append(reply_obj)
     sessions[sid] = history[-20:]
     SESSIONS_FILE.write_text(json.dumps(sessions, indent=2))
-    return jsonify({"reply": reply, "session": sid})
+    return jsonify({"reply": reply, "session": sid, **({"confirm_token": result["confirm_token"]} if "confirm_token" in result else {})})
 
 @app.route("/api/apikeys", methods=["GET", "POST"])
 def apikeys():

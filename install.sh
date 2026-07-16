@@ -39,14 +39,14 @@ if [[ "$PM" == "apt" ]]; then
   DEBIAN_FRONTEND=noninteractive apt-get update -y
   install_pkg nginx mysql-server php-fpm php-cli php-mysql php-curl php-gd php-mbstring php-xml php-zip \
     python3 python3-venv python3-pip curl jq unzip sudo certbot python3-certbot-nginx \
-    python3-certbot-dns-cloudflare python3-certbot-dns-route53 vsftpd apache2-utils
+    python3-certbot-dns-cloudflare python3-certbot-dns-route53 vsftpd apache2-utils fail2ban ufw
 elif [[ "$PM" == "apk" ]]; then
   install_pkg nginx mysql php php-fpm php-curl php-gd php-mbstring php-xml php-zip \
-    python3 py3-pip curl jq unzip sudo certbot vsftpd apache2-utils
+    python3 py3-pip curl jq unzip sudo certbot vsftpd apache2-utils fail2ban
   install_pkg certbot-dns-cloudflare certbot-dns-route53 2>/dev/null || true
 else
   install_pkg nginx mariadb-server php-fpm php-cli php-mysqlnd php-curl php-gd php-mbstring php-xml php-zip \
-    python3 python3-pip curl jq unzip sudo certbot vsftpd httpd-tools
+    python3 python3-pip curl jq unzip sudo certbot vsftpd httpd-tools fail2ban
   install_pkg certbot-dns-cloudflare certbot-dns-route53 2>/dev/null || true
 fi
 

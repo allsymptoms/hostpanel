@@ -30,8 +30,9 @@ panel: ✅ WordPress installed! Admin: https://bobdesign.io/wp-admin
 
 **Highlights** — chat-driven provisioning · one-command WordPress · Let's Encrypt
 SSL with **automatic DNS-01 validation** (Cloudflare / Route53 / manual) · jailed
-FTP accounts · nginx reverse-proxy hardening · cross-distro installer (apt/dnf/
-yum/apk). Full list in **[FEATURES.md](FEATURES.md)**.
+FTP accounts · nginx reverse-proxy hardening · **backups & restore** · **firewall +
+fail2ban** · **teardown with confirmation + audit log** · cross-distro installer
+(apt/dnf/yum/apk). Full list in **[FEATURES.md](FEATURES.md)**.
 
 ---
 
@@ -141,6 +142,49 @@ Creates a vsftpd virtual user (no system login, no SSH) jailed to that site's
 docroot. The FTP password is returned in the chat. Passive ports 40000–40100
 are opened if `ufw` is present.
 
+## Production hardening
+
+HostPanel is built to be run for real clients. Beyond the panel's own basic-auth
+proxy, it ships operational tooling:
+
+### Backups & restore
+
+```text
+backup acme.com                 # tar docroot + mysqldump (if WordPress)
+list backups                    # show all available backups
+restore acme.com from <ref>     # restore files (+ DB if present)
+```
+
+Backups are timestamped archives under `/opt/hostpanel/backups/<domain>_<ts>/`.
+Teardown actions (below) **always back up first** unless you pass `--no-backup`.
+
+### Firewall & brute-force protection
+
+```text
+configure firewall             # open 22/80/443/21 + FTP passive (40000–40100) via ufw/firewalld
+enable fail2ban                # jails for sshd, nginx-http-auth, vsftpd
+```
+
+### Teardown (destructive — confirmation required)
+
+```text
+delete vhost acme.com          # removes the site (after a backup)
+uninstall wordpress acme.com   # removes WP files + drops its DB (after a backup)
+delete user acme               # removes the user and all their sites (after a backup)
+```
+
+Destructive requests always ask **"Reply yes to proceed"** before doing anything,
+and never act without an explicit confirmation. Every change is written to an
+append-only audit log.
+
+### Activity / audit log
+
+```text
+show activity                  # recent actions (who/what/when/result)
+```
+
+The audit log lives at `/opt/hostpanel/logs/audit.log`.
+
 ## API keys (optional, for natural-language flexibility)
 
 Without an API key the panel uses a built-in parser that understands the
@@ -165,6 +209,10 @@ browser ──> app.py (Flask, bound to 127.0.0.1:8080) ──> scripts/*.sh (ru
                                                          ├── setup_ssl.sh          (certbot cert + 443 vhost + HTTPS redirect)
                                                          ├── create_ftp.sh         (vsftpd virtual user, jailed to docroot)
                                                          ├── setup_proxy.sh        (nginx reverse proxy + basic auth)
+                                                         ├── backup.sh / restore.sh (docroot tar + DB dump)
+                                                         ├── delete_vhost.sh / uninstall_wordpress.sh / delete_user.sh (teardown, backup-first)
+                                                         ├── setup_firewall.sh / setup_fail2ban.sh (host hardening)
+                                                         ├── show_activity.sh      (audit log feed)
                                                          └── list_users.sh
 ```
 
@@ -178,14 +226,18 @@ hostpanel/
 ├── install.sh            # bootstrap installer (run on the VPS)
 ├── app.py                # Flask backend + chat intent parser + API-key store
 ├── static/index.html     # the chat UI
-└── scripts/
-    ├── lib.sh            # shared helpers (validation, logging, password gen)
+├── scripts/
+    ├── lib.sh            # shared helpers (validation, logging, mysql, audit)
     ├── create_user.sh
     ├── create_vhost.sh
     ├── install_wordpress.sh
     ├── setup_ssl.sh
     ├── create_ftp.sh
     ├── setup_proxy.sh
+    ├── backup.sh / restore.sh
+    ├── delete_vhost.sh / uninstall_wordpress.sh / delete_user.sh
+    ├── setup_firewall.sh / setup_fail2ban.sh
+    ├── show_activity.sh
     └── list_users.sh
 ```
 
@@ -195,9 +247,13 @@ hostpanel/
 # logs
 journalctl -u hostpanel -f
 cat /opt/hostpanel/logs/provision.log
+cat /opt/hostpanel/logs/audit.log
 
 # list what the panel knows
 bash /opt/hostpanel/scripts/list_users.sh
+
+# list backups
+bash /opt/hostpanel/scripts/list_backups.sh
 
 # restart
 sudo systemctl restart hostpanel
@@ -218,3 +274,8 @@ sudo systemctl restart hostpanel
 - DNS provider credentials (e.g. Cloudflare token) are stored root-only (0600) in
   `config/dnsconfig.json` and `config/cloudflare.ini`.
 - API keys are stored root-only (0600).
+- Destructive actions (delete/uninstall/teardown) require an explicit chat
+  confirmation and always back up first. All actions are recorded in the
+  append-only audit log at `logs/audit.log`.
+- `configure firewall` locks down all ports except 22/80/443/21 + FTP passive;
+  `enable fail2ban` blocks SSH/panel/FTP brute-force attempts.
