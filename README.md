@@ -8,6 +8,7 @@
 Create users, host domains, install WordPress, issue SSL, and set up FTP —
 just by telling it what you want.
 
+![CI](https://github.com/allsymptoms/hostpanel/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-blue)
 ![Stack](https://img.shields.io/badge/stack-Flask%20%2B%20nginx%20%2B%20bash-orange)
