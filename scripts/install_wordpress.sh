@@ -20,7 +20,7 @@ is_valid_domain "$DOMAIN" || fail "Invalid domain: '$DOMAIN'"
 [[ "$ADMIN_EMAIL" =~ ^[^@\ ]+@[^@\ ]+\.[^@\ ]+$ ]] || fail "Invalid admin email: '$ADMIN_EMAIL'"
 
 id "$USERNAME" &>/dev/null || fail "User '$USERNAME' does not exist"
-DOCROOT="$(docroot_for "$USERNAME")"
+DOCROOT="$(docroot_for "$USERNAME" "$DOMAIN")"
 [[ -d "$DOCROOT" ]] || fail "Docroot missing; create vhost first"
 
 need_cmd mysql

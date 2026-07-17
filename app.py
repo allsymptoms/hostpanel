@@ -110,6 +110,14 @@ You can do these actions (output ONE command line as JSON in a ```json code bloc
   - delete_vhost: {"action":"delete_vhost","domain":"<domain>","no_backup":false}
   - uninstall_wordpress: {"action":"uninstall_wordpress","domain":"<domain>","no_backup":false}
   - delete_user: {"action":"delete_user","username":"<unixname>","no_backup":false}
+  - create_vhost (static): {"action":"create_vhost","username":"<unixname>","domain":"<domain>","type":"static"}
+  - create_vhost (proxy app): {"action":"create_vhost","username":"<unixname>","domain":"<domain>","type":"proxy","port":3000}
+  - install_ghost: {"action":"install_ghost","username":"<unixname>","domain":"<domain>"}
+  - install_nextcloud: {"action":"install_nextcloud","username":"<unixname>","domain":"<domain>","admin_user":"admin","admin_email":"a@b.com"}
+  - db_manage: {"action":"db_manage","db_action":"<create|list|dump|resetpw>","username":"<unixname>","db":"<dbname>","db_user":"<dbuser>"}
+  - clone_site: {"action":"clone_site","username":"<unixname>","src":"<domain>","dst":"<domain>"}
+  - snapshot: {"action":"snapshot","target":"<domain|all>"}
+  - monitor: {"action":"monitor"}
 If required info is missing, reply with plain text asking the user for it (no JSON).
 Keep replies short and friendly. Always confirm with the real credentials the scripts return.
 For destructive actions (delete/uninstall) you may set "no_backup":false to keep the default backup-first behavior."""
@@ -209,10 +217,38 @@ def handle_message(text, history):
         ftp_user = m_ftp.group(1) if m_ftp else f"{m_user.group(1)}ftp"
         return execute_intent({"action": "create_ftp", "username": m_user.group(1),
                                "domain": m_domain.group(1), "ftp_user": ftp_user}, note)
-    # Proxy: "enable proxy/auth" or "secure the panel with basic auth"
+    # Site hosting expansion (check BEFORE panel proxy, which also matches "proxy")
+    if re.search(r"(static site|host a static|static page)", t) and m_domain and m_user:
+        return execute_intent({"action": "create_vhost", "username": m_user.group(1),
+                               "domain": m_domain.group(1), "type": "static"}, note)
+    if re.search(r"(reverse proxy|node app|app on port|proxy .* to .* for user|proxy my)", t) and m_domain and m_user:
+        m_port = re.search(r"port\s+(\d+)", t)
+        port = m_port.group(1) if m_port else "3000"
+        return execute_intent({"action": "create_vhost", "username": m_user.group(1),
+                               "domain": m_domain.group(1), "type": "proxy", "port": port}, note)
+    if re.search(r"ghost", t) and m_domain and m_user:
+        return execute_intent({"action": "install_ghost", "username": m_user.group(1), "domain": m_domain.group(1)}, note)
+    if re.search(r"nextcloud", t) and m_domain and m_user:
+        a_user = re.search(r"admin\s+(\S+)", t)
+        a_email = re.search(r"([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})", t)
+        return execute_intent({"action": "install_nextcloud", "username": m_user.group(1),
+                               "domain": m_domain.group(1),
+                               "admin_user": a_user.group(1) if a_user else "admin",
+                               "admin_email": a_email.group(1) if a_email else f"admin@{m_domain.group(1)}"}, note)
+    # Proxy: panel hardening "enable proxy/auth" or "secure the panel with basic auth"
     if re.search(r"(proxy|basic auth|secure the panel|auth|expose safely|harden)", t) and "domain" not in t:
         return execute_intent({"action": "setup_proxy"}, note)
-    if "status" in t or "list" in t or "show users" in t:
+    # Database management (check before generic status/"list")
+    if re.search(r"database|db user|mysql", t) and m_user:
+        act = "list"
+        if re.search(r"create|new", t): act = "create"
+        elif re.search(r"dump|export|backup db", t): act = "dump"
+        elif re.search(r"reset|rotate|change.*password|password", t): act = "resetpw"
+        m_db = re.search(r"(?:database|db)\s+([a-z_][a-z0-9_]{0,31})", t) or re.search(r"([a-z_][a-z0-9_]{0,31})\s+for user", t)
+        db = m_db.group(1) if m_db else ""
+        return execute_intent({"action": "db_manage", "db_action": act,
+                               "username": m_user.group(1), "db": db}, note)
+    if "status" in t or re.search(r"(show users|list users|inventory|list sites|list domains)", t):
         return execute_intent({"action": "status"}, note)
     # Activity feed
     if re.search(r"(activity|audit|recent|history|what (did|have) you (do|done))", t):
@@ -234,6 +270,22 @@ def handle_message(text, history):
         return execute_intent({"action": "setup_firewall"}, note)
     if re.search(r"fail2ban|brute ?force|ban attackers|intrusion", t):
         return execute_intent({"action": "setup_fail2ban"}, note)
+    # Monitoring / snapshot
+    if re.search(r"(monitor|health check|cert expiry|expir)", t):
+        return execute_intent({"action": "monitor"}, note)
+    if re.search(r"(snapshot|backup (everything|all|before)|pre-?change backup)", t):
+        d = m_domain.group(1) if m_domain else "all"
+        return execute_intent({"action": "snapshot", "target": d}, note)
+    # Clone / staging
+    if re.search(r"(clone|staging|copy).*(site|domain|to|for)", t) and m_domain:
+        m_dst = re.search(r"(?:to|staging|for)\s+([a-z0-9-]+\.[a-z0-9-]+\.[a-z]{2,})", t) \
+            or re.search(r"staging\.([a-z0-9-]+\.[a-z]{2,})", t)
+        dst = m_dst.group(1) if m_dst else ""
+        if not dst and m_user:
+            dst = f"staging.{m_domain.group(1)}"
+        if dst:
+            return execute_intent({"action": "clone_site", "username": m_user.group(1) if m_user else "",
+                                   "src": m_domain.group(1), "dst": dst}, note)
     # Teardown (destructive) — require explicit confirmation
     if re.search(r"(delete|remove|uninstall|tear ?down|destroy)", t):
         if re.search(r"wordpress", t) and m_domain:
@@ -359,6 +411,28 @@ def execute_intent(intent, note="", confirm_token=None):
         if intent.get("no_backup"):
             args.append("--no-backup")
         r = run_script("delete_user.sh", args)
+    elif action == "install_ghost":
+        r = run_script("install_ghost.sh", [intent["username"], intent["domain"]])
+    elif action == "install_nextcloud":
+        args = [intent["username"], intent["domain"]]
+        if intent.get("admin_user"): args.append(intent["admin_user"])
+        if intent.get("admin_email"): args.append(intent["admin_email"])
+        if intent.get("admin_pass"): args.append(intent["admin_pass"])
+        r = run_script("install_nextcloud.sh", args)
+    elif action == "db_manage":
+        args = [intent["db_action"], intent["username"]]
+        if intent.get("db"): args.append(intent["db"])
+        if intent.get("db_user"): args.append(intent["db_user"])
+        if intent.get("db_pass"): args.append(intent["db_pass"])
+        r = run_script("db_manage.sh", args)
+    elif action == "clone_site":
+        args = [intent.get("username",""), intent["src"], intent["dst"]]
+        if intent.get("type"): args.append(intent["type"])
+        r = run_script("clone_site.sh", args)
+    elif action == "snapshot":
+        r = run_script("snapshot.sh", [intent.get("target", "all")])
+    elif action == "monitor":
+        r = run_script("monitor.sh", [])
     else:
         return {"reply": note + f"Unknown action: {action}"}
     return format_result(action, r, note)
@@ -451,6 +525,53 @@ def format_result(action, r, note):
         return {"reply": note + f"🗑️ Removed WordPress from `{r['domain']}` (backup: `{r['backup']}`)."}
     if action == "delete_user":
         return {"reply": note + f"🗑️ Deleted hosting user `{r['username']}` and {r['sites_removed']} site(s)."}
+    if action == "install_ghost":
+        return {"reply": note + (
+            f"✅ Ghost/Node app installed for `{r['domain']}`!\n\n"
+            f"🌐 Site: http://{r['domain']}\n"
+            f"Proxy port: {r['port']}\n"
+            f"Service: `{r['service']}`\n"
+            f"App dir: `{r['appdir']}`"
+        )}
+    if action == "install_nextcloud":
+        return {"reply": note + (
+            f"✅ Nextcloud installed for `{r['domain']}`!\n\n"
+            f"🌐 Site: http://{r['domain']}\n"
+            f"Admin user: `{r['admin_user']}`\n"
+            f"Database: `{r['database']}`\n"
+            f"DB user: `{r['database_user']}`\n"
+            f"DB password: `{r['database_password']}`"
+        )}
+    if action == "db_manage":
+        if r.get("action") == "list":
+            dbs = r.get("databases", [])
+            if not dbs:
+                return {"reply": note + "No databases found."}
+            return {"reply": note + "Databases:\n" + "\n".join(f"`{d}`" for d in dbs)}
+        if r.get("action") == "dump":
+            return {"reply": note + f"✅ Dumped `{r['database']}` to `{r['file']}`."}
+        if r.get("action") == "resetpw":
+            return {"reply": note + f"🔐 Rotated password for DB user `{r['db_user']}` on `{r['database']}`: `{r['db_password']}`"}
+        return {"reply": note + f"✅ Created database `{r['database']}` (user `{r['db_user']}`, pass `{r['db_password']}`)."}
+    if action == "clone_site":
+        return {"reply": note + (
+            f"✅ Cloned `{r['src']}` to `{r['dst']}`.\n\n"
+            f"Docroot: `{r['docroot']}`\n"
+            f"Database: `{r['database']}`"
+        )}
+    if action == "snapshot":
+        refs = r.get("refs", [])
+        if not refs:
+            return {"reply": note + "No sites to snapshot."}
+        return {"reply": note + "📸 Snapshot created:\n" + "\n".join(f"`{x}`" for x in refs)}
+    if action == "monitor":
+        rep = r.get("report", [])
+        if not rep:
+            return {"reply": note + "No sites to monitor."}
+        lines = [f"`{e['domain']}`  http={e.get('http_status')} cert={e.get('cert_expiry_days')}d ({e.get('cert_level')})"
+                 for e in rep]
+        return {"reply": note + "🩺 Monitoring report:\n" + "\n".join(lines) +
+                "\n\n(Detailed JSON: /opt/hostpanel/data/monitor.json)"}
     return {"reply": note + json.dumps(r, indent=2)}
 
 # ---------------------------------------------------------------------------
@@ -487,8 +608,15 @@ def chat():
                  "• `create user acme`\n"
                  "• `host domain acme.com for user acme`\n"
                  "• `install wordpress on acme.com for user acme`\n"
+                 "• `host a static site static.acme.com for user acme`\n"
+                 "• `proxy my node app on port 3000 to app.acme.com for user acme`\n"
+                 "• `install ghost on ghost.acme.com for user acme`\n"
+                 "• `install nextcloud on cloud.acme.com for user acme`\n"
+                 "• `create database mydb for user acme`\n"
+                 "• `clone acme.com to staging.acme.com for user acme`\n"
                  "• `show users` / `show activity`\n"
-                 "• `backup acme.com` / `list backups`\n"
+                 "• `backup acme.com` / `snapshot all`\n"
+                 "• `run monitor`\n"
                  "• `configure firewall` / `enable fail2ban`\n\n"
                  "What would you like to do? (I'll ask for any missing details.)")
     else:

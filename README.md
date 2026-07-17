@@ -185,6 +185,55 @@ show activity                  # recent actions (who/what/when/result)
 
 The audit log lives at `/opt/hostpanel/logs/audit.log`.
 
+### More than WordPress — any site
+
+```text
+host a static site static.acme.com for user acme   # plain HTML (no PHP)
+proxy my node app on port 3000 to app.acme.com for user acme   # nginx -> localhost:3000
+install ghost on ghost.acme.com for user acme       # Ghost/Node app behind a proxy
+install nextcloud on cloud.acme.com for user acme   # Nextcloud (PHP) + DB
+```
+
+- **static** — serves files from the docroot, no PHP engine.
+- **proxy** — creates a vhost that reverse-proxies to a local app port (Node,
+  Python, Go, etc.). The app is managed by a systemd service the script writes.
+- **Ghost** — scaffolds a Node app, creates the proxy vhost + systemd service,
+  and starts it. Drop your Ghost/Node code into the app dir to go live.
+- **Nextcloud** — downloads Nextcloud into the docroot, creates its DB, and runs
+  the installer. Admin creds + DB password are returned in chat.
+
+### Databases
+
+```text
+create database mydb for user acme        # create DB + user, returns creds
+list databases for user acme              # list the user's databases
+dump database mydb for user acme          # export to a backup file
+reset password for database mydb for user acme   # rotate the DB user password
+```
+
+### Staging from production
+
+```text
+clone acme.com to staging.acme.com for user acme   # copies docroot + DB, rewrites URLs
+```
+
+`clone` snapshots the source first, creates a staging vhost, copies files, and
+clones the database (for WordPress it rewrites `siteurl`/`home` to the staging
+domain). Safe, reversible, and great for client previews.
+
+### Monitoring (certs + health)
+
+```text
+snapshot all                    # one-click safety backup of every site
+run monitor                     # cert-expiry + HTTP health for every site
+```
+
+`run monitor` checks each Let's Encrypt cert's days-to-expiry (warns < 21,
+crit < 7) and each site's HTTP status, writes a report to
+`/opt/hostpanel/data/monitor.json`, and appends any warnings to the audit log.
+The installer also enables a **daily systemd timer** (`hostpanel-monitor.timer`)
+so this runs automatically at 06:00.
+
 ## API keys (optional, for natural-language flexibility)
 
 Without an API key the panel uses a built-in parser that understands the
@@ -213,6 +262,10 @@ browser ──> app.py (Flask, bound to 127.0.0.1:8080) ──> scripts/*.sh (ru
                                                          ├── delete_vhost.sh / uninstall_wordpress.sh / delete_user.sh (teardown, backup-first)
                                                          ├── setup_firewall.sh / setup_fail2ban.sh (host hardening)
                                                          ├── show_activity.sh      (audit log feed)
+                                                         ├── monitor.sh / snapshot.sh (certs + health)
+                                                         ├── install_ghost.sh / install_nextcloud.sh (apps)
+                                                         ├── db_manage.sh          (create/list/dump/reset)
+                                                         ├── clone_site.sh         (staging)
                                                          └── list_users.sh
 ```
 
@@ -238,6 +291,10 @@ hostpanel/
     ├── delete_vhost.sh / uninstall_wordpress.sh / delete_user.sh
     ├── setup_firewall.sh / setup_fail2ban.sh
     ├── show_activity.sh
+    ├── monitor.sh / snapshot.sh
+    ├── install_ghost.sh / install_nextcloud.sh
+    ├── db_manage.sh
+    ├── clone_site.sh
     └── list_users.sh
 ```
 

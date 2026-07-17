@@ -20,7 +20,7 @@ is_valid_domain "$DOMAIN" || fail "Invalid domain: '$DOMAIN'"
 is_valid_user "$FTP_USER" || fail "Invalid ftp_user: '$FTP_USER'"
 
 id "$USERNAME" &>/dev/null || fail "Hosting user '$USERNAME' does not exist"
-DOCROOT="$(docroot_for "$USERNAME")"
+DOCROOT="$(docroot_for "$USERNAME" "$DOMAIN")"
 [[ -d "$DOCROOT" ]] || fail "Docroot missing for '$USERNAME'"
 
 need_cmd vsftpd

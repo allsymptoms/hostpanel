@@ -20,6 +20,10 @@ No dashboards to click through — you talk, HostPanel builds.
 | 🛡️ | Firewall + fail2ban | `configure firewall` / `enable fail2ban` |
 | 🗑️ | Teardown (safe) | `delete vhost acme.com` (asks to confirm, backs up first) |
 | 📋 | Audit / activity | `show activity` |
+| 🌐 | Any site | `host a static site …` / `proxy my node app …` / `install ghost …` / `install nextcloud …` |
+| 🗃️ | Databases | `create/list/dump/reset database …` |
+| 🧪 | Staging clones | `clone acme.com to staging.acme.com` |
+| 🩺 | Monitoring | `run monitor` (cert + health) / `snapshot all` (daily timer) |
 
 ---
 
@@ -129,6 +133,43 @@ Removing things is as easy as creating them — but never silent:
 - `show activity` surfaces an append-only log of every action (who/what/when/result).
 - The same log lives at `/opt/hostpanel/logs/audit.log` for off-box shipping.
 
+## 14. Host any site, not just WordPress
+
+- **Static sites** — `host a static site static.acme.com for user acme` serves plain
+  HTML with no PHP engine.
+- **Reverse-proxied apps** — `proxy my node app on port 3000 to app.acme.com for
+  user acme` creates an nginx vhost that forwards to a local port. A systemd service
+  is written to keep the app (Node/Python/Go) running.
+- **Ghost** — `install ghost on ghost.acme.com for user acme` scaffolds a Node app,
+  wires the proxy vhost + systemd service, and starts it.
+- **Nextcloud** — `install nextcloud on cloud.acme.com for user acme` downloads
+  Nextcloud, creates its DB, and runs the installer; admin creds + DB password come
+  back in the chat.
+
+## 15. Database management in chat
+
+`create database mydb for user acme` · `list databases for user acme` ·
+`dump database mydb for user acme` · `reset password for database mydb for user acme`.
+
+Wraps the MySQL helpers to create/inspect/export/rotate per-client databases
+without touching the shell.
+
+## 16. Staging clones
+
+`clone acme.com to staging.acme.com for user acme` snapshots the source, creates a
+staging vhost, copies the docroot, and clones the database (WordPress `siteurl`/
+`home` are rewritten to the staging domain). Perfect for client previews — and
+always reversible via `restore`.
+
+## 17. Monitoring (certificates + health)
+
+- `snapshot all` takes a one-click safety backup of every site before risky work.
+- `run monitor` checks each Let's Encrypt cert's days-to-expiry (warn < 21, crit < 7)
+  and each site's HTTP status, writing a report to `/opt/hostpanel/data/monitor.json`
+  and alerting via the audit log.
+- The installer enables a **daily systemd timer** (`hostpanel-monitor.timer`) so the
+  check runs automatically at 06:00 — no cron to maintain by hand.
+
 ---
 
 ## Architecture
@@ -174,7 +215,10 @@ create ftp for user bob domain bobdesign.io
 backup bobdesign.io
 configure firewall
 enable fail2ban
-# → Bob has a live HTTPS WordPress site with FTP, a backup, and a hardened host.
+clone bobdesign.io to staging.bobdesign.io for user bob
+create database reports for user bob
+# → Bob has a live HTTPS WordPress site with FTP, a backup, a staging copy,
+#   a managed database, a hardened host, and daily cert/health monitoring.
 ```
 
 See [README.md](README.md) for full setup, DNS provider configuration, and

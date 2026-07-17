@@ -55,8 +55,12 @@ gen_pass() {
 
 # --- Detect web server docroot layout ---
 docroot_for() {
-  local user="$1"
-  echo "${USERS_DIR}/${user}/www"
+  local user="$1" domain="${2:-}"
+  if [[ -n "$domain" ]]; then
+    echo "${USERS_DIR}/${user}/www/${domain}"
+  else
+    echo "${USERS_DIR}/${user}/www"
+  fi
 }
 
 # Ensure required runtime dirs exist (called by scripts that run as root)
